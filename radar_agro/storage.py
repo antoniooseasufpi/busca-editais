@@ -126,7 +126,11 @@ def ensure_classification_columns(df: pd.DataFrame) -> pd.DataFrame:
         axis=1,
     )
     normalized["area_aplicacao"] = normalized.apply(
-        lambda row: infer_area_aplicacao(build_text(row), current=row.get("area_aplicacao")),
+        lambda row: infer_area_aplicacao(
+            build_text(row),
+            current=row.get("area_aplicacao"),
+            category=str(row.get("categoria", "")),
+        ),
         axis=1,
     )
     return normalized

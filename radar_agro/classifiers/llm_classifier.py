@@ -413,10 +413,11 @@ def _normalize_result(raw: dict[str, Any], result: dict[str, Any], classified_by
         TIPO_OPORTUNIDADE_VALUES,
         infer_tipo_oportunidade(category, text),
     )
+    area_text = f"{text} {' '.join(technologies)} {result.get('motivo_classificacao', '')}".lower()
     area_aplicacao = _normalize_choice(
         result.get("area_aplicacao"),
         AREA_APLICACAO_VALUES,
-        infer_area_aplicacao(f"{text} {' '.join(technologies)} {result.get('motivo_classificacao', '')}".lower()),
+        infer_area_aplicacao(area_text, category=category),
     )
     status = _normalize_choice(
         result.get("status_chamada"),
@@ -439,10 +440,7 @@ def _normalize_result(raw: dict[str, Any], result: dict[str, Any], classified_by
         raw, deadline, status, potential, recommendation, score, category
     )
     tipo_oportunidade = infer_tipo_oportunidade(category, text, current=tipo_oportunidade)
-    area_aplicacao = infer_area_aplicacao(
-        f"{text} {' '.join(technologies)} {result.get('motivo_classificacao', '')}".lower(),
-        current=area_aplicacao,
-    )
+    area_aplicacao = infer_area_aplicacao(area_text, current=area_aplicacao, category=category)
 
     normalized = {
         "id": raw.get("id"),
@@ -605,12 +603,34 @@ def infer_tipo_oportunidade(category: str, text: str = "", current: str | None =
     lowered_text = str(text or "").lower()
     if "cpsi" in lowered_category:
         return "CPSI"
+    if "etec" in lowered_category or "encomenda tecnológica" in lowered_category or "encomenda tecnologica" in lowered_category:
+        return "ETEC"
+    if "cpi" in lowered_category or "compra pública de inovação" in lowered_category or "compra publica de inovacao" in lowered_category:
+        return "CPI"
+    if "rfi" in lowered_category or "consulta ao mercado" in lowered_category:
+        return "RFI"
     if "inovação aberta" in lowered_category or "inovacao aberta" in lowered_category:
         return "Open Innovation"
     if "editais" in lowered_category or "fomento" in lowered_category:
         return "Edital/Fomento"
     if "rfp" in lowered_category or "demandas comerciais" in lowered_category:
         return "RFP"
+    if _has_any(
+        lowered_category,
+        [
+            "saúde animal",
+            "saude animal",
+            "pecuária de precisão",
+            "pecuaria de precisao",
+            "agricultura digital",
+            "sensoriamento remoto",
+            "drones",
+            "cooperativas agroindustriais",
+            "empresas estratégicas agrotech",
+            "empresas estrategicas agrotech",
+        ],
+    ):
+        return "Outro"
     if _has_any(lowered_text, ["etec", "encomenda tecnológica", "encomenda tecnologica"]):
         return "ETEC"
     if _has_any(lowered_text, ["rfi", "request for information", "consulta ao mercado", "tomada de subsídios"]):
@@ -628,8 +648,22 @@ def infer_tipo_oportunidade(category: str, text: str = "", current: str | None =
     return "Outro"
 
 
-def infer_area_aplicacao(text: str, current: str | None = None) -> str:
+def infer_area_aplicacao(text: str, current: str | None = None, category: str = "") -> str:
     lowered = str(text or "").lower()
+    lowered_category = str(category or "").lower()
+    category_mapping = [
+        ("Saúde Animal", ["saúde animal", "saude animal"]),
+        ("Pecuária de Precisão", ["pecuária de precisão", "pecuaria de precisao"]),
+        ("Agricultura Digital", ["agricultura digital"]),
+        ("Sensoriamento Remoto", ["sensoriamento remoto", "satélites", "satelites"]),
+        ("Drones e Monitoramento Aéreo", ["drones", "monitoramento aéreo", "monitoramento aereo"]),
+        ("Cooperativas Agroindustriais", ["cooperativas agroindustriais"]),
+        ("GovTech", ["cpsi", "etec", "compra pública de inovação", "compra publica de inovacao", "consulta ao mercado"]),
+    ]
+    for area, terms in category_mapping:
+        if _has_any(lowered_category, terms):
+            return area
+
     rules = [
         (
             "Saúde Animal",
