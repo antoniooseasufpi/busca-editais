@@ -118,9 +118,14 @@ if st.button("Executar Busca", type="primary"):
     overall_bar.progress(1.0, text="Progresso geral: 100%")
     stage_bar.progress(1.0, text="Etapa atual: 100%")
     status_box.update(label="Busca concluída", state="complete", expanded=False)
+    prefilter_text = (
+        f", {result['prefiltered_count']} descartadas no pré-filtro de data"
+        if result.get("prefiltered_count")
+        else ""
+    )
     st.success(
         f"Busca concluída: {result['found_count']} encontradas, "
-        f"{result['new_count']} novas, {result['elapsed_seconds']}s."
+        f"{result['new_count']} novas{prefilter_text}, {result['elapsed_seconds']}s."
     )
     st.rerun()
 

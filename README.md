@@ -9,6 +9,7 @@ Aplicação local em Python + Streamlit para monitorar oportunidades de negócio
 - Classifica oportunidades com LLM local via Ollama.
 - Usa `qwen3:8b` por padrão, com modelo configurável em YAML.
 - Aplica um pré-filtro determinístico antes do LLM para evitar gastar tempo com notícias, cursos, eventos e chamadas encerradas.
+- Descarta antes do Ollama publicações antigas sem prazo identificado, usando janela padrão de 180 dias a partir da data da busca.
 - Usa um classificador heurístico local como fallback operacional se o Ollama não estiver em execução.
 - Prioriza chamadas abertas, editais, PoCs, inovação aberta e oportunidades comerciais.
 - Inclui categoria CPSI para Contratação Pública de Soluções Inovadoras.
@@ -93,7 +94,7 @@ Valores de `potencial_negocio`:
 
 Por padrão, o dashboard mostra somente `ABERTA` com potencial `ALTO` ou `MEDIO`. Os filtros permitem visualizar também encerradas e descartadas.
 
-Quando não é possível identificar `prazo_inscricao`, o classificador usa `data_publicacao` como controle de validade: publicações sem prazo com mais de 180 dias em relação à data da busca são marcadas como `ENCERRADA` e `DESCARTAR`.
+Quando não é possível identificar `prazo_inscricao`, a aplicação usa `data_publicacao` como controle de validade. Publicações sem prazo com mais de 180 dias em relação à data da busca são marcadas como `ENCERRADA` e `DESCARTAR`; isso ocorre primeiro no pré-filtro do pipeline, antes da chamada ao Ollama, e também é validado no classificador como proteção final.
 
 O dashboard também separa:
 

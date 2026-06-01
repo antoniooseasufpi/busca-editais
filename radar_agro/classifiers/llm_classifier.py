@@ -228,6 +228,29 @@ def classify_opportunity(raw: dict[str, Any]) -> dict[str, Any]:
     return _normalize_result(raw, rules_result, classified_by="heuristica")
 
 
+def should_prefilter_by_publication_date(raw: dict[str, Any]) -> bool:
+    """Evita classificacao pesada para publicacoes antigas sem prazo identificavel."""
+
+    text = _combined_text(raw)
+    deadline = _extract_deadline(text) or _extract_cpsi_deadline(text)
+    publication_date = _normalize_date(raw.get("published_at"))
+    found_date = _normalize_date(raw.get("collected_at")) or date.today().isoformat()
+    return _is_stale_without_deadline(deadline, publication_date, found_date)
+
+
+def classify_prefiltered_opportunity(raw: dict[str, Any]) -> dict[str, Any]:
+    result = _classify_with_rules(raw)
+    normalized = _normalize_result(raw, result, classified_by="prefiltro_data")
+    normalized["status_chamada"] = "ENCERRADA"
+    normalized["potencial_negocio"] = "DESCARTAR"
+    normalized["recomendacao_acao"] = "DESCARTAR"
+    normalized["motivo_classificacao"] = (
+        f"Publicacao sem prazo identificado com mais de {STALE_PUBLICATION_DAYS} dias "
+        "em relacao a data da busca; descartada antes da classificacao por LLM."
+    )
+    return normalized
+
+
 def _classify_with_ollama(raw: dict[str, Any]) -> dict[str, Any] | None:
     config = load_llm_config()
     if config.get("provider") != "ollama":
