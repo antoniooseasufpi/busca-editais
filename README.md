@@ -93,6 +93,8 @@ Valores de `potencial_negocio`:
 
 Por padrão, o dashboard mostra somente `ABERTA` com potencial `ALTO` ou `MEDIO`. Os filtros permitem visualizar também encerradas e descartadas.
 
+Quando não é possível identificar `prazo_inscricao`, o classificador usa `data_publicacao` como controle de validade: publicações sem prazo com mais de 180 dias em relação à data da busca são marcadas como `ENCERRADA` e `DESCARTAR`.
+
 O dashboard também separa:
 
 - `tipo_oportunidade`: natureza da oportunidade, como `Edital/Fomento`, `Open Innovation`, `RFP`, `CPSI`, `ETEC`, `CPI` ou `PoC/Piloto`.

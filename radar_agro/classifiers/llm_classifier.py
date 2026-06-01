@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import requests
@@ -10,6 +10,7 @@ import requests
 from radar_agro.config.settings import load_llm_config
 
 CPSI_CATEGORY = "CPSI - Contratação Pública de Soluções Inovadoras"
+STALE_PUBLICATION_DAYS = 180
 
 TIPO_OPORTUNIDADE_VALUES = {
     "Edital/Fomento",
@@ -367,6 +368,8 @@ def _classify_with_rules(raw: dict[str, Any]) -> dict[str, Any]:
         status = "SEM_PRAZO_IDENTIFICADO"
     else:
         status = "NAO_E_CHAMADA"
+    if _is_stale_without_deadline(deadline, publication_date, _normalize_date(raw.get("collected_at"))):
+        status = "ENCERRADA"
 
     score = max(0, min(10, 2 + opportunity_score + tech_score - (4 if is_discard else 0)))
     potential = _infer_potential(status, score, opportunity_score, tech_score)
@@ -436,15 +439,16 @@ def _normalize_result(raw: dict[str, Any], result: dict[str, Any], classified_by
         "MONITORAR",
     )
 
+    found_date = _normalize_date(raw.get("collected_at")) or date.today().isoformat()
     status, potential, recommendation = _post_validate(
-        raw, deadline, status, potential, recommendation, score, category
+        raw, deadline, publication_date, found_date, status, potential, recommendation, score, category
     )
     tipo_oportunidade = infer_tipo_oportunidade(category, text, current=tipo_oportunidade)
     area_aplicacao = infer_area_aplicacao(area_text, current=area_aplicacao, category=category)
 
     normalized = {
         "id": raw.get("id"),
-        "data_encontrada": _normalize_date(raw.get("collected_at")) or date.today().isoformat(),
+        "data_encontrada": found_date,
         "data_publicacao": publication_date,
         "prazo_inscricao": deadline,
         "status_chamada": status,
@@ -484,6 +488,8 @@ def _normalize_result(raw: dict[str, Any], result: dict[str, Any], classified_by
 def _post_validate(
     raw: dict[str, Any],
     deadline: str | None,
+    publication_date: str | None,
+    found_date: str,
     status: str,
     potential: str,
     recommendation: str,
@@ -492,6 +498,8 @@ def _post_validate(
 ) -> tuple[str, str, str]:
     text = _combined_text(raw)
     if deadline and _parse_iso_date(deadline) < date.today():
+        status = "ENCERRADA"
+    if _is_stale_without_deadline(deadline, publication_date, found_date):
         status = "ENCERRADA"
     if status in {"ENCERRADA", "NAO_E_CHAMADA"} or _has_any(text, ENDED_TERMS):
         return status, "DESCARTAR", "DESCARTAR"
@@ -563,6 +571,21 @@ def _days_remaining(deadline: str | None) -> int | None:
     if not deadline:
         return None
     return (_parse_iso_date(deadline) - date.today()).days
+
+
+def _is_stale_without_deadline(
+    deadline: str | None,
+    publication_date: str | None,
+    found_date: str | None,
+) -> bool:
+    if deadline or not publication_date:
+        return False
+    try:
+        published = _parse_iso_date(publication_date)
+        reference = _parse_iso_date(found_date or date.today().isoformat())
+    except ValueError:
+        return False
+    return published < reference - timedelta(days=STALE_PUBLICATION_DAYS)
 
 
 def _infer_potential(status: str, score: int, opportunity_score: int, tech_score: int) -> str:
