@@ -1,0 +1,10 @@
+.DS_Store
+.env
+.venv/
+__pycache__/
+*.py[cod]
+radar_agro/data/*
+!radar_agro/data/.gitkeep
+radar_agro/reports/*
+!radar_agro/reports/.gitkeep
+

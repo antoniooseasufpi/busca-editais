@@ -1,0 +1,2 @@
+"""Classificadores de oportunidades."""
+

@@ -1,0 +1,5 @@
+llm:
+  provider: ollama
+  model: qwen3:8b
+  host: http://localhost:11434
+  timeout_seconds: 90
