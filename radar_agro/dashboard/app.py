@@ -39,6 +39,11 @@ total_high = int((potential_series == "ALTO").sum()) if not df.empty else 0
 total_medium = int((potential_series == "MEDIO").sum()) if not df.empty else 0
 due_7 = int(((days_series >= 0) & (days_series <= 7)).sum()) if not df.empty else 0
 due_30 = int(((days_series >= 0) & (days_series <= 30)).sum()) if not df.empty else 0
+cpsi_mask = df.get("categoria", pd.Series(dtype=str)) == "CPSI - Contratação Pública de Soluções Inovadoras"
+cpsi_open = int((cpsi_mask & (status_series == "ABERTA")).sum()) if not df.empty else 0
+cpsi_closed = int((cpsi_mask & (status_series == "ENCERRADA")).sum()) if not df.empty else 0
+cpsi_due_7 = int((cpsi_mask & (days_series >= 0) & (days_series <= 7)).sum()) if not df.empty else 0
+cpsi_due_30 = int((cpsi_mask & (days_series >= 0) & (days_series <= 30)).sum()) if not df.empty else 0
 
 top_cols = st.columns(4)
 top_cols[0].metric("Última execução", last_run)
@@ -56,6 +61,12 @@ deadline_cols = st.columns(3)
 deadline_cols[0].metric("Médio potencial", total_medium)
 deadline_cols[1].metric("Vencem em 7 dias", due_7)
 deadline_cols[2].metric("Vencem em 30 dias", due_30)
+
+cpsi_cols = st.columns(4)
+cpsi_cols[0].metric("CPSIs abertas", cpsi_open)
+cpsi_cols[1].metric("CPSIs encerradas", cpsi_closed)
+cpsi_cols[2].metric("CPSIs vencem em 7 dias", cpsi_due_7)
+cpsi_cols[3].metric("CPSIs vencem em 30 dias", cpsi_due_30)
 
 if st.button("Executar Busca", type="primary"):
     status_box = st.status("Iniciando busca...", expanded=True)
@@ -185,6 +196,16 @@ visible_columns = [
     "tecnologias_relacionadas",
     "recomendacao_acao",
     "motivo_classificacao",
+    "numero_edital",
+    "orgao_publico",
+    "modalidade",
+    "objeto",
+    "data_inicio_propostas",
+    "data_limite_propostas",
+    "valor_estimado",
+    "forma_envio_proposta",
+    "link_edital",
+    "link_anexos",
     "url",
 ]
 visible_columns = [column for column in visible_columns if column in filtered.columns]
@@ -195,6 +216,7 @@ st.dataframe(
     hide_index=True,
     column_config={
         "url": st.column_config.LinkColumn("URL"),
+        "link_edital": st.column_config.LinkColumn("Edital"),
         "score_aderencia": st.column_config.ProgressColumn(
             "Score", min_value=0, max_value=10, format="%d"
         ),

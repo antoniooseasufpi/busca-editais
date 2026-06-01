@@ -72,7 +72,12 @@ def sort_opportunities(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     sorted_df = df.copy()
+    status_rank = {"ABERTA": 0, "SEM_PRAZO_IDENTIFICADO": 1, "ENCERRADA": 2, "NAO_E_CHAMADA": 3}
     potential_rank = {"ALTO": 0, "MEDIO": 1, "BAIXO": 2, "DESCARTAR": 3}
+    status_series = sorted_df.get("status_chamada", pd.Series(dtype=str))
+    category_series = sorted_df.get("categoria", pd.Series(dtype=str))
+    sorted_df["_status_rank"] = status_series.map(status_rank).fillna(9)
+    sorted_df["_cpsi_rank"] = (category_series != "CPSI - Contratação Pública de Soluções Inovadoras").astype(int)
     potential_series = sorted_df.get("potencial_negocio", pd.Series(dtype=str))
     sorted_df["_potencial_rank"] = potential_series.map(potential_rank).fillna(9)
     sorted_df["_score_rank"] = pd.to_numeric(
@@ -82,10 +87,12 @@ def sort_opportunities(df: pd.DataFrame) -> pd.DataFrame:
         sorted_df.get("dias_restantes", pd.Series(dtype=float)), errors="coerce"
     ).fillna(99999)
     sorted_df = sorted_df.sort_values(
-        by=["_potencial_rank", "_score_rank", "_dias_rank"],
-        ascending=[True, False, True],
+        by=["_status_rank", "_cpsi_rank", "_potencial_rank", "_dias_rank", "_score_rank"],
+        ascending=[True, True, True, True, False],
     )
-    return sorted_df.drop(columns=["_potencial_rank", "_score_rank", "_dias_rank"])
+    return sorted_df.drop(
+        columns=["_status_rank", "_cpsi_rank", "_potencial_rank", "_score_rank", "_dias_rank"]
+    )
 
 
 def append_history(found_count: int, new_count: int, elapsed_seconds: float) -> None:
