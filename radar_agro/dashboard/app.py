@@ -10,7 +10,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from radar_agro.config.settings import OPPORTUNITIES_CSV, OPPORTUNITIES_XLSX
+from radar_agro.config.settings import CATEGORIES, OPPORTUNITIES_CSV, OPPORTUNITIES_XLSX
 from radar_agro.pipeline import run_search_pipeline
 from radar_agro.storage import clear_local_data, load_history, load_opportunities
 
@@ -142,7 +142,8 @@ st.divider()
 
 status_options = sorted(df["status_chamada"].dropna().unique()) if "status_chamada" in df else []
 potential_options = sorted(df["potencial_negocio"].dropna().unique()) if "potencial_negocio" in df else []
-categories = sorted(df["categoria"].dropna().unique()) if "categoria" in df else []
+data_categories = set(df["categoria"].dropna().unique()) if "categoria" in df else set()
+categories = sorted(data_categories.union(CATEGORIES.keys()))
 
 default_status = [status for status in ["ABERTA"] if status in status_options]
 default_potential = [item for item in ["ALTO", "MEDIO"] if item in potential_options]
