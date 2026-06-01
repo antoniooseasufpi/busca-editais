@@ -72,6 +72,8 @@ O arquivo final inclui os campos de prospecção:
 - `status_chamada`
 - `dias_restantes`
 - `potencial_negocio`
+- `tipo_oportunidade`
+- `area_aplicacao`
 - `motivo_classificacao`
 - `recomendacao_acao`
 
@@ -90,6 +92,11 @@ Valores de `potencial_negocio`:
 - `DESCARTAR`
 
 Por padrão, o dashboard mostra somente `ABERTA` com potencial `ALTO` ou `MEDIO`. Os filtros permitem visualizar também encerradas e descartadas.
+
+O dashboard também separa:
+
+- `tipo_oportunidade`: natureza da oportunidade, como `Edital/Fomento`, `Open Innovation`, `RFP`, `CPSI`, `ETEC`, `CPI` ou `PoC/Piloto`.
+- `area_aplicacao`: domínio técnico/setorial, como `Saúde Animal`, `Pecuária de Precisão`, `Sensoriamento Remoto`, `Drones e Monitoramento Aéreo`, `GovTech` ou `IA e Machine Learning`.
 
 ## CPSI
 

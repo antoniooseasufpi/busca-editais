@@ -142,6 +142,8 @@ st.divider()
 
 status_options = sorted(df["status_chamada"].dropna().unique()) if "status_chamada" in df else []
 potential_options = sorted(df["potencial_negocio"].dropna().unique()) if "potencial_negocio" in df else []
+type_options = sorted(df["tipo_oportunidade"].dropna().unique()) if "tipo_oportunidade" in df else []
+area_options = sorted(df["area_aplicacao"].dropna().unique()) if "area_aplicacao" in df else []
 data_categories = set(df["categoria"].dropna().unique()) if "categoria" in df else set()
 categories = sorted(data_categories.union(CATEGORIES.keys()))
 
@@ -150,23 +152,31 @@ default_potential = [item for item in ["ALTO", "MEDIO"] if item in potential_opt
 if not default_potential:
     default_potential = potential_options
 
-filter_cols = st.columns([1.1, 1.1, 1.3, 0.9, 1.1])
+filter_cols = st.columns([1.1, 1.1, 1.2, 1.2, 0.9])
 selected_status = filter_cols[0].multiselect("Status da chamada", status_options, default=default_status)
 selected_potential = filter_cols[1].multiselect(
     "Potencial de negócio", potential_options, default=default_potential
 )
-selected_categories = filter_cols[2].multiselect("Categoria", categories, default=categories)
-min_score = filter_cols[3].slider("Score mínimo", 0, 10, 0)
-deadline_window = filter_cols[4].number_input(
+selected_types = filter_cols[2].multiselect("Tipo de Oportunidade", type_options, default=type_options)
+selected_areas = filter_cols[3].multiselect("Área de Aplicação", area_options, default=area_options)
+min_score = filter_cols[4].slider("Score mínimo", 0, 10, 0)
+
+filter_cols_2 = st.columns([1.4, 1.1, 2.5])
+selected_categories = filter_cols_2[0].multiselect("Categoria", categories, default=categories)
+deadline_window = filter_cols_2[1].number_input(
     "Prazo nos próximos X dias", min_value=0, max_value=365, value=0, step=1
 )
-text_query = st.text_input("Busca textual", placeholder="Digite termo, tecnologia, organização ou edital")
+text_query = filter_cols_2[2].text_input("Busca textual", placeholder="Digite termo, tecnologia, organização ou edital")
 
 filtered = df.copy()
 if selected_status:
     filtered = filtered[filtered["status_chamada"].isin(selected_status)]
 if selected_potential:
     filtered = filtered[filtered["potencial_negocio"].isin(selected_potential)]
+if selected_types:
+    filtered = filtered[filtered["tipo_oportunidade"].isin(selected_types)]
+if selected_areas:
+    filtered = filtered[filtered["area_aplicacao"].isin(selected_areas)]
 if selected_categories:
     filtered = filtered[filtered["categoria"].isin(selected_categories)]
 filtered = filtered[filtered["score_aderencia"] >= min_score]
@@ -192,6 +202,8 @@ visible_columns = [
     "prazo_inscricao",
     "data_publicacao",
     "categoria",
+    "tipo_oportunidade",
+    "area_aplicacao",
     "organizacao",
     "nome_oportunidade",
     "tecnologias_relacionadas",
