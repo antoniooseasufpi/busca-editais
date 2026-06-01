@@ -9,6 +9,8 @@ import requests
 
 from radar_agro.config.settings import load_llm_config
 
+CPSI_CATEGORY = "CPSI - Contratação Pública de Soluções Inovadoras"
+
 DATE_PATTERNS = [
     r"(?:inscri[cç][oõ]es?|submiss[oõ]es?|propostas?|prazo|deadline|apply by|applications close|encerramento)\s+(?:abertas?\s+)?(?:at[eé]|ate|until|by|em)?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
     r"(?:at[eé]|ate|until|by)\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
@@ -50,6 +52,12 @@ TECH_TERMS = {
     "pecuaria": 2,
     "agricultura digital": 2,
     "agtech": 2,
+    "govtech": 2,
+    "geotecnologia": 2,
+    "geotecnologias": 2,
+    "dados": 1,
+    "automação": 1,
+    "automacao": 1,
 }
 
 OPPORTUNITY_TERMS = {
@@ -80,6 +88,19 @@ OPPORTUNITY_TERMS = {
     "programa de aceleracao": 2,
     "rfp": 2,
     "request for proposal": 2,
+    "cpsi": 4,
+    "contrato público para solução inovadora": 4,
+    "contrato publico para solucao inovadora": 4,
+    "contratação pública de solução inovadora": 4,
+    "contratacao publica de solucao inovadora": 4,
+    "contratação pública de soluções inovadoras": 4,
+    "contratacao publica de solucoes inovadoras": 4,
+    "licitação especial": 3,
+    "licitacao especial": 3,
+    "solução inovadora": 2,
+    "solucao inovadora": 2,
+    "marco legal das startups": 2,
+    "lei complementar 182/2021": 2,
 }
 
 DISCARD_TERMS = [
@@ -105,6 +126,11 @@ DISCARD_TERMS = [
     "materia jornalistica",
     "previsão de mercado",
     "previsao de mercado",
+    "manual",
+    "guia",
+    "artigo",
+    "consulta pública",
+    "consulta publica",
 ]
 
 ENDED_TERMS = [
@@ -113,6 +139,47 @@ ENDED_TERMS = [
     "inscrições encerradas",
     "inscricoes encerradas",
     "prazo encerrado",
+    "homologado",
+    "finalizado",
+    "suspenso",
+    "revogado",
+]
+
+CPSI_STRONG_TERMS = [
+    "cpsi",
+    "contrato público para solução inovadora",
+    "contrato publico para solucao inovadora",
+    "contratação pública de solução inovadora",
+    "contratacao publica de solucao inovadora",
+    "contratação pública de soluções inovadoras",
+    "contratacao publica de solucoes inovadoras",
+]
+
+CPSI_CANDIDATE_TERMS = [
+    "licitação especial para solução inovadora",
+    "licitacao especial para solucao inovadora",
+    "seleção de proposta de solução inovadora",
+    "selecao de proposta de solucao inovadora",
+    "teste de solução inovadora",
+    "teste de solucao inovadora",
+    "marco legal das startups",
+    "lei complementar nº 182/2021",
+    "lei complementar 182/2021",
+    "solução inovadora",
+    "solucao inovadora",
+]
+
+CPSI_OPTIONAL_FIELDS = [
+    "numero_edital",
+    "orgao_publico",
+    "modalidade",
+    "objeto",
+    "data_inicio_propostas",
+    "data_limite_propostas",
+    "link_edital",
+    "link_anexos",
+    "valor_estimado",
+    "forma_envio_proposta",
 ]
 
 
@@ -172,6 +239,8 @@ def _classify_with_ollama(raw: dict[str, Any]) -> dict[str, Any] | None:
 
 def _should_skip_ollama(raw: dict[str, Any], rules_result: dict[str, Any]) -> bool:
     text = _combined_text(raw)
+    if _is_cpsi_candidate(_content_text(raw)):
+        return False
     if rules_result["status_chamada"] in {"NAO_E_CHAMADA", "ENCERRADA"}:
         return True
     if rules_result["potencial_negocio"] == "DESCARTAR":
@@ -202,13 +271,26 @@ Classifique esta oportunidade comercial. JSON obrigatorio:
   "score_aderencia": 0,
   "potencial_negocio": "",
   "motivo_classificacao": "",
-  "recomendacao_acao": ""
+  "recomendacao_acao": "",
+  "numero_edital": null,
+  "orgao_publico": null,
+  "modalidade": null,
+  "objeto": null,
+  "data_inicio_propostas": null,
+  "data_limite_propostas": null,
+  "link_edital": null,
+  "link_anexos": [],
+  "valor_estimado": null,
+  "forma_envio_proposta": null
 }}
 
 status_chamada deve ser ABERTA, ENCERRADA, SEM_PRAZO_IDENTIFICADO ou NAO_E_CHAMADA.
 potencial_negocio deve ser ALTO, MEDIO, BAIXO ou DESCARTAR.
 recomendacao_acao deve ser AVALIAR_EDITAL, ENTRAR_EM_CONTATO, MONITORAR ou DESCARTAR.
 Descarte noticias, cursos, eventos, webinars, mestrados e conteudos sem chamada ativa.
+Use categoria "{CPSI_CATEGORY}" quando houver CPSI, Contrato Publico para Solucao Inovadora,
+Contratacao Publica de Solucao Inovadora, Marco Legal das Startups, Lei Complementar 182/2021
+ou edital para teste/contratacao de solucao inovadora pela administracao publica.
 
 Data atual: {date.today().isoformat()}
 Categoria sugerida: {raw.get("category_hint", "")}
@@ -222,11 +304,17 @@ Fonte: {raw.get("source", "")}
 
 def _classify_with_rules(raw: dict[str, Any]) -> dict[str, Any]:
     text = _combined_text(raw)
+    content_text = _content_text(raw)
     deadline = _extract_deadline(text)
+    cpsi_deadline = _extract_cpsi_deadline(text)
+    deadline = cpsi_deadline or deadline
     publication_date = _normalize_date(raw.get("published_at"))
     techs = [term for term in TECH_TERMS if term in text]
     opportunity_score = sum(weight for term, weight in OPPORTUNITY_TERMS.items() if term in text)
     tech_score = sum(weight for term, weight in TECH_TERMS.items() if term in text)
+    is_cpsi = _is_cpsi_candidate(content_text)
+    if is_cpsi:
+        opportunity_score += 3
     is_discard = _has_any(text, DISCARD_TERMS)
     is_ended = _has_any(text, ENDED_TERMS)
     looks_like_call = opportunity_score > 0 or _has_any(
@@ -252,10 +340,11 @@ def _classify_with_rules(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "organizacao": _guess_organization(raw),
         "nome_oportunidade": raw.get("title", ""),
-        "categoria": raw.get("category_hint", "Não classificada"),
+        "categoria": CPSI_CATEGORY if is_cpsi else raw.get("category_hint", "Não classificada"),
         "descricao_resumida": raw.get("snippet", "")[:500],
         "data_publicacao": publication_date,
         "prazo_inscricao": deadline,
+        "data_limite_propostas": deadline if is_cpsi else None,
         "status_chamada": status,
         "dias_restantes": _days_remaining(deadline),
         "tecnologias_relacionadas": sorted(set(techs)),
@@ -263,6 +352,8 @@ def _classify_with_rules(raw: dict[str, Any]) -> dict[str, Any]:
         "potencial_negocio": potential,
         "motivo_classificacao": _classification_reason(status, potential, bool(deadline), techs),
         "recomendacao_acao": recommendation,
+        "orgao_publico": _guess_organization(raw) if is_cpsi else None,
+        "link_edital": raw.get("url", "") if is_cpsi else None,
     }
 
 
@@ -271,8 +362,14 @@ def _normalize_result(raw: dict[str, Any], result: dict[str, Any], classified_by
     if isinstance(technologies, str):
         technologies = [item.strip() for item in technologies.split(",") if item.strip()]
 
-    deadline = _normalize_date(result.get("prazo_inscricao")) or _extract_deadline(_combined_text(raw))
+    text = _combined_text(raw)
+    cpsi_candidate = _is_cpsi_candidate(_content_text(raw))
+    cpsi_deadline = _normalize_date(result.get("data_limite_propostas")) or _extract_cpsi_deadline(text)
+    deadline = _normalize_date(result.get("prazo_inscricao")) or cpsi_deadline or _extract_deadline(text)
     publication_date = _normalize_date(result.get("data_publicacao")) or _normalize_date(raw.get("published_at"))
+    category = result.get("categoria") or raw.get("category_hint", "Não classificada")
+    if cpsi_candidate:
+        category = CPSI_CATEGORY
     status = _normalize_choice(
         result.get("status_chamada"),
         {"ABERTA", "ENCERRADA", "SEM_PRAZO_IDENTIFICADO", "NAO_E_CHAMADA"},
@@ -290,9 +387,11 @@ def _normalize_result(raw: dict[str, Any], result: dict[str, Any], classified_by
         "MONITORAR",
     )
 
-    status, potential, recommendation = _post_validate(raw, deadline, status, potential, recommendation, score)
+    status, potential, recommendation = _post_validate(
+        raw, deadline, status, potential, recommendation, score, category
+    )
 
-    return {
+    normalized = {
         "id": raw.get("id"),
         "data_encontrada": _normalize_date(raw.get("collected_at")) or date.today().isoformat(),
         "data_publicacao": publication_date,
@@ -305,7 +404,7 @@ def _normalize_result(raw: dict[str, Any], result: dict[str, Any], classified_by
         "recomendacao_acao": recommendation,
         "organizacao": result.get("organizacao") or _guess_organization(raw),
         "nome_oportunidade": result.get("nome_oportunidade") or raw.get("title", ""),
-        "categoria": result.get("categoria") or raw.get("category_hint", "Não classificada"),
+        "categoria": category,
         "descricao_resumida": result.get("descricao_resumida") or raw.get("snippet", ""),
         "tecnologias_relacionadas": ", ".join(technologies),
         "score_aderencia": score,
@@ -315,6 +414,18 @@ def _normalize_result(raw: dict[str, Any], result: dict[str, Any], classified_by
         "coletado_em": raw.get("collected_at", datetime.now().isoformat(timespec="seconds")),
         "classificado_por": classified_by,
     }
+    for field in CPSI_OPTIONAL_FIELDS:
+        value = result.get(field)
+        if field in {"data_inicio_propostas", "data_limite_propostas"}:
+            value = _normalize_date(value)
+        if field == "link_anexos" and isinstance(value, list):
+            value = ", ".join(str(item) for item in value if item)
+        normalized[field] = value
+    if cpsi_candidate:
+        normalized["data_limite_propostas"] = normalized.get("data_limite_propostas") or deadline
+        normalized["orgao_publico"] = normalized.get("orgao_publico") or normalized["organizacao"]
+        normalized["link_edital"] = normalized.get("link_edital") or normalized["url"]
+    return normalized
 
 
 def _post_validate(
@@ -324,12 +435,17 @@ def _post_validate(
     potential: str,
     recommendation: str,
     score: int,
+    category: str,
 ) -> tuple[str, str, str]:
     text = _combined_text(raw)
     if deadline and _parse_iso_date(deadline) < date.today():
         status = "ENCERRADA"
     if status in {"ENCERRADA", "NAO_E_CHAMADA"} or _has_any(text, ENDED_TERMS):
         return status, "DESCARTAR", "DESCARTAR"
+    if category == CPSI_CATEGORY and status == "ABERTA":
+        recommendation = "AVALIAR_EDITAL"
+        if score >= 8:
+            potential = "ALTO"
     if _has_any(text, DISCARD_TERMS) and not _has_any(text, ["inscrições abertas", "chamada aberta", "edital aberto"]):
         return "NAO_E_CHAMADA", "DESCARTAR", "DESCARTAR"
     if not deadline and score >= 6 and status != "ABERTA":
@@ -408,6 +524,27 @@ def _infer_potential(status: str, score: int, opportunity_score: int, tech_score
     return "BAIXO"
 
 
+def _is_cpsi_candidate(text: str) -> bool:
+    return _has_any(text, CPSI_STRONG_TERMS) or (
+        _has_any(text, CPSI_CANDIDATE_TERMS)
+        and _has_any(text, ["edital", "chamada", "proposta", "administração pública", "administracao publica"])
+    )
+
+
+def _extract_cpsi_deadline(text: str) -> str | None:
+    patterns = [
+        r"(?:propostas?|envio de propostas?|apresenta[cç][aã]o das propostas?|recebimento de propostas?)\s+(?:at[eé]|ate|até|em)?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
+        r"(?:data limite de propostas?|limite para propostas?)\s*(?:at[eé]|ate|até|em)?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            parsed = _parse_loose_date(match.group(1))
+            if parsed:
+                return parsed.isoformat()
+    return None
+
+
 def _infer_recommendation(status: str, potential: str) -> str:
     if potential == "DESCARTAR" or status in {"ENCERRADA", "NAO_E_CHAMADA"}:
         return "DESCARTAR"
@@ -426,6 +563,10 @@ def _classification_reason(status: str, potential: str, has_deadline: bool, tech
 
 def _combined_text(raw: dict[str, Any]) -> str:
     return f"{raw.get('title', '')} {raw.get('snippet', '')} {raw.get('query', '')}".lower()
+
+
+def _content_text(raw: dict[str, Any]) -> str:
+    return f"{raw.get('title', '')} {raw.get('snippet', '')} {raw.get('source', '')}".lower()
 
 
 def _has_any(text: str, terms: list[str]) -> bool:

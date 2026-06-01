@@ -11,6 +11,7 @@ Aplicação local em Python + Streamlit para monitorar oportunidades de negócio
 - Aplica um pré-filtro determinístico antes do LLM para evitar gastar tempo com notícias, cursos, eventos e chamadas encerradas.
 - Usa um classificador heurístico local como fallback operacional se o Ollama não estiver em execução.
 - Prioriza chamadas abertas, editais, PoCs, inovação aberta e oportunidades comerciais.
+- Inclui categoria CPSI para Contratação Pública de Soluções Inovadoras.
 - Marca notícias, cursos, eventos, mestrados e chamadas encerradas como baixa prioridade ou descarte.
 - Persiste tudo em arquivos locais dentro de `radar_agro/data/`.
 - Exibe dashboard com filtros e exportação em Excel/CSV.
@@ -89,6 +90,12 @@ Valores de `potencial_negocio`:
 - `DESCARTAR`
 
 Por padrão, o dashboard mostra somente `ABERTA` com potencial `ALTO` ou `MEDIO`. Os filtros permitem visualizar também encerradas e descartadas.
+
+## CPSI
+
+A aplicação busca e classifica oportunidades da categoria `CPSI - Contratação Pública de Soluções Inovadoras`, incluindo termos como `edital CPSI`, `Contrato Público para Solução Inovadora`, `Marco Legal das Startups` e `Lei Complementar 182/2021`.
+
+Quando disponíveis, o Excel/CSV também inclui campos opcionais específicos de CPSI, como `numero_edital`, `orgao_publico`, `modalidade`, `objeto`, `data_limite_propostas`, `link_edital`, `valor_estimado` e `forma_envio_proposta`.
 
 ## Executar busca pela linha de comando
 

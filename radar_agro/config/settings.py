@@ -88,6 +88,26 @@ CATEGORIES = {
         "licitação drone agricultura",
         "licitação imagens de satélite",
     ],
+    "CPSI - Contratação Pública de Soluções Inovadoras": [
+        "CPSI",
+        "Contrato Público para Solução Inovadora",
+        "Contratação Pública de Solução Inovadora",
+        "Contratação Pública de Soluções Inovadoras",
+        "edital CPSI",
+        "edital de CPSI",
+        "chamamento público CPSI",
+        "licitação especial solução inovadora",
+        '"Marco Legal das Startups" "solução inovadora"',
+        '"Lei Complementar 182/2021" "CPSI"',
+        '"proposta de solução inovadora" "administração pública"',
+        '"teste de solução inovadora" "edital"',
+        '"contratação de solução inovadora" "startup"',
+        '"govtech" "CPSI"',
+        '"CPSI" "inscrições abertas"',
+        '"CPSI" "propostas até"',
+        '"CPSI" "prazo de inscrição"',
+        '"CPSI" "apresentação das propostas"',
+    ],
 }
 
 # RSS institucionais variam com frequencia. A lista fica centralizada para facilitar manutencao.
