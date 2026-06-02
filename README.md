@@ -63,6 +63,41 @@ llm:
 
 Para trocar o modelo futuramente, altere apenas o campo `model`, por exemplo `llama3:8b` ou `mistral`.
 
+## Executar tudo com Makefile
+
+O caminho mais simples para subir a aplicação local completa é:
+
+```bash
+make up
+```
+
+Esse comando:
+
+- cria o ambiente `.venv` se ele ainda não existir;
+- instala as dependências de `requirements.txt`;
+- verifica se o Ollama está instalado;
+- inicia `ollama serve` em background se ele ainda não estiver rodando;
+- baixa/atualiza o modelo `qwen3:8b`;
+- abre o dashboard Streamlit.
+
+Comandos úteis:
+
+```bash
+make ollama-start
+make ollama-pull
+make ollama-status
+make streamlit
+make run-search
+make stop-ollama
+make logs
+```
+
+Para usar outro modelo sem editar o arquivo:
+
+```bash
+make up OLLAMA_MODEL=llama3:8b
+```
+
 ## Campos principais
 
 O arquivo final inclui os campos de prospecção:
