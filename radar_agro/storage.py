@@ -7,6 +7,8 @@ from typing import Any
 
 import pandas as pd
 
+from radar_agro.classifiers.llm_classifier import infer_area_aplicacao, infer_tipo_oportunidade
+
 from radar_agro.config.settings import (
     DATA_DIR,
     HISTORY_JSON,
@@ -25,8 +27,8 @@ def ensure_directories() -> None:
 def load_opportunities() -> pd.DataFrame:
     ensure_directories()
     if OPPORTUNITIES_XLSX.exists():
-        return pd.read_excel(OPPORTUNITIES_XLSX)
-    return pd.DataFrame()
+        return ensure_classification_columns(pd.read_excel(OPPORTUNITIES_XLSX))
+    return ensure_classification_columns(pd.DataFrame())
 
 
 def save_raw_results(results: list[dict[str, Any]]) -> None:
@@ -39,6 +41,7 @@ def save_raw_results(results: list[dict[str, Any]]) -> None:
 
 def save_opportunities(df: pd.DataFrame) -> None:
     ensure_directories()
+    df = ensure_classification_columns(df)
     df = sort_opportunities(df)
     df.to_excel(OPPORTUNITIES_XLSX, index=False)
     df.to_csv(OPPORTUNITIES_CSV, index=False, encoding="utf-8-sig")
@@ -71,7 +74,7 @@ def sort_opportunities(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
 
-    sorted_df = df.copy()
+    sorted_df = ensure_classification_columns(df.copy())
     status_rank = {"ABERTA": 0, "SEM_PRAZO_IDENTIFICADO": 1, "ENCERRADA": 2, "NAO_E_CHAMADA": 3}
     potential_rank = {"ALTO": 0, "MEDIO": 1, "BAIXO": 2, "DESCARTAR": 3}
     status_series = sorted_df.get("status_chamada", pd.Series(dtype=str))
@@ -93,6 +96,44 @@ def sort_opportunities(df: pd.DataFrame) -> pd.DataFrame:
     return sorted_df.drop(
         columns=["_status_rank", "_cpsi_rank", "_potencial_rank", "_score_rank", "_dias_rank"]
     )
+
+
+def ensure_classification_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    normalized = df.copy()
+    if "tipo_oportunidade" not in normalized.columns:
+        normalized["tipo_oportunidade"] = None
+    if "area_aplicacao" not in normalized.columns:
+        normalized["area_aplicacao"] = None
+
+    def build_text(row: pd.Series) -> str:
+        fields = [
+            row.get("nome_oportunidade", ""),
+            row.get("descricao_resumida", ""),
+            row.get("tecnologias_relacionadas", ""),
+            row.get("motivo_classificacao", ""),
+        ]
+        return " ".join(str(value) for value in fields if pd.notna(value)).lower()
+
+    normalized["tipo_oportunidade"] = normalized.apply(
+        lambda row: infer_tipo_oportunidade(
+            str(row.get("categoria", "")),
+            build_text(row),
+            current=row.get("tipo_oportunidade"),
+        ),
+        axis=1,
+    )
+    normalized["area_aplicacao"] = normalized.apply(
+        lambda row: infer_area_aplicacao(
+            build_text(row),
+            current=row.get("area_aplicacao"),
+            category=str(row.get("categoria", "")),
+        ),
+        axis=1,
+    )
+    return normalized
 
 
 def append_history(found_count: int, new_count: int, elapsed_seconds: float) -> None:

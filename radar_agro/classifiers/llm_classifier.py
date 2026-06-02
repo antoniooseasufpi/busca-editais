@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import requests
@@ -10,6 +10,38 @@ import requests
 from radar_agro.config.settings import load_llm_config
 
 CPSI_CATEGORY = "CPSI - Contratação Pública de Soluções Inovadoras"
+STALE_PUBLICATION_DAYS = 180
+
+TIPO_OPORTUNIDADE_VALUES = {
+    "Edital/Fomento",
+    "Open Innovation",
+    "RFP",
+    "RFI",
+    "CPSI",
+    "ETEC",
+    "CPI",
+    "Aceleração",
+    "PoC/Piloto",
+    "Licitação Tradicional",
+    "Outro",
+}
+
+AREA_APLICACAO_VALUES = {
+    "Saúde Animal",
+    "Pecuária de Precisão",
+    "Agricultura Digital",
+    "Sensoriamento Remoto",
+    "Drones e Monitoramento Aéreo",
+    "Visão Computacional",
+    "IA e Machine Learning",
+    "GovTech",
+    "Cooperativas Agroindustriais",
+    "Meio Ambiente",
+    "Rastreabilidade",
+    "Automação e IoT",
+    "Gestão Pública",
+    "Outro",
+}
 
 DATE_PATTERNS = [
     r"(?:inscri[cç][oõ]es?|submiss[oõ]es?|propostas?|prazo|deadline|apply by|applications close|encerramento)\s+(?:abertas?\s+)?(?:at[eé]|ate|until|by|em)?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
@@ -196,6 +228,29 @@ def classify_opportunity(raw: dict[str, Any]) -> dict[str, Any]:
     return _normalize_result(raw, rules_result, classified_by="heuristica")
 
 
+def should_prefilter_by_publication_date(raw: dict[str, Any]) -> bool:
+    """Evita classificacao pesada para publicacoes antigas sem prazo identificavel."""
+
+    text = _combined_text(raw)
+    deadline = _extract_deadline(text) or _extract_cpsi_deadline(text)
+    publication_date = _normalize_date(raw.get("published_at"))
+    found_date = _normalize_date(raw.get("collected_at")) or date.today().isoformat()
+    return _is_stale_without_deadline(deadline, publication_date, found_date)
+
+
+def classify_prefiltered_opportunity(raw: dict[str, Any]) -> dict[str, Any]:
+    result = _classify_with_rules(raw)
+    normalized = _normalize_result(raw, result, classified_by="prefiltro_data")
+    normalized["status_chamada"] = "ENCERRADA"
+    normalized["potencial_negocio"] = "DESCARTAR"
+    normalized["recomendacao_acao"] = "DESCARTAR"
+    normalized["motivo_classificacao"] = (
+        f"Publicacao sem prazo identificado com mais de {STALE_PUBLICATION_DAYS} dias "
+        "em relacao a data da busca; descartada antes da classificacao por LLM."
+    )
+    return normalized
+
+
 def _classify_with_ollama(raw: dict[str, Any]) -> dict[str, Any] | None:
     config = load_llm_config()
     if config.get("provider") != "ollama":
@@ -272,6 +327,8 @@ Classifique esta oportunidade comercial. JSON obrigatorio:
   "potencial_negocio": "",
   "motivo_classificacao": "",
   "recomendacao_acao": "",
+  "tipo_oportunidade": "",
+  "area_aplicacao": "",
   "numero_edital": null,
   "orgao_publico": null,
   "modalidade": null,
@@ -287,6 +344,8 @@ Classifique esta oportunidade comercial. JSON obrigatorio:
 status_chamada deve ser ABERTA, ENCERRADA, SEM_PRAZO_IDENTIFICADO ou NAO_E_CHAMADA.
 potencial_negocio deve ser ALTO, MEDIO, BAIXO ou DESCARTAR.
 recomendacao_acao deve ser AVALIAR_EDITAL, ENTRAR_EM_CONTATO, MONITORAR ou DESCARTAR.
+tipo_oportunidade deve ser um destes: Edital/Fomento, Open Innovation, RFP, RFI, CPSI, ETEC, CPI, Aceleração, PoC/Piloto, Licitação Tradicional, Outro.
+area_aplicacao deve ser uma destas: Saúde Animal, Pecuária de Precisão, Agricultura Digital, Sensoriamento Remoto, Drones e Monitoramento Aéreo, Visão Computacional, IA e Machine Learning, GovTech, Cooperativas Agroindustriais, Meio Ambiente, Rastreabilidade, Automação e IoT, Gestão Pública, Outro.
 Descarte noticias, cursos, eventos, webinars, mestrados e conteudos sem chamada ativa.
 Use categoria "{CPSI_CATEGORY}" quando houver CPSI, Contrato Publico para Solucao Inovadora,
 Contratacao Publica de Solucao Inovadora, Marco Legal das Startups, Lei Complementar 182/2021
@@ -332,15 +391,20 @@ def _classify_with_rules(raw: dict[str, Any]) -> dict[str, Any]:
         status = "SEM_PRAZO_IDENTIFICADO"
     else:
         status = "NAO_E_CHAMADA"
+    if _is_stale_without_deadline(deadline, publication_date, _normalize_date(raw.get("collected_at"))):
+        status = "ENCERRADA"
 
     score = max(0, min(10, 2 + opportunity_score + tech_score - (4 if is_discard else 0)))
     potential = _infer_potential(status, score, opportunity_score, tech_score)
     recommendation = _infer_recommendation(status, potential)
+    category = CPSI_CATEGORY if is_cpsi else raw.get("category_hint", "Não classificada")
 
     return {
         "organizacao": _guess_organization(raw),
         "nome_oportunidade": raw.get("title", ""),
-        "categoria": CPSI_CATEGORY if is_cpsi else raw.get("category_hint", "Não classificada"),
+        "categoria": category,
+        "tipo_oportunidade": infer_tipo_oportunidade(category, text),
+        "area_aplicacao": infer_area_aplicacao(text),
         "descricao_resumida": raw.get("snippet", "")[:500],
         "data_publicacao": publication_date,
         "prazo_inscricao": deadline,
@@ -370,6 +434,17 @@ def _normalize_result(raw: dict[str, Any], result: dict[str, Any], classified_by
     category = result.get("categoria") or raw.get("category_hint", "Não classificada")
     if cpsi_candidate:
         category = CPSI_CATEGORY
+    tipo_oportunidade = _normalize_choice(
+        result.get("tipo_oportunidade"),
+        TIPO_OPORTUNIDADE_VALUES,
+        infer_tipo_oportunidade(category, text),
+    )
+    area_text = f"{text} {' '.join(technologies)} {result.get('motivo_classificacao', '')}".lower()
+    area_aplicacao = _normalize_choice(
+        result.get("area_aplicacao"),
+        AREA_APLICACAO_VALUES,
+        infer_area_aplicacao(area_text, category=category),
+    )
     status = _normalize_choice(
         result.get("status_chamada"),
         {"ABERTA", "ENCERRADA", "SEM_PRAZO_IDENTIFICADO", "NAO_E_CHAMADA"},
@@ -387,13 +462,16 @@ def _normalize_result(raw: dict[str, Any], result: dict[str, Any], classified_by
         "MONITORAR",
     )
 
+    found_date = _normalize_date(raw.get("collected_at")) or date.today().isoformat()
     status, potential, recommendation = _post_validate(
-        raw, deadline, status, potential, recommendation, score, category
+        raw, deadline, publication_date, found_date, status, potential, recommendation, score, category
     )
+    tipo_oportunidade = infer_tipo_oportunidade(category, text, current=tipo_oportunidade)
+    area_aplicacao = infer_area_aplicacao(area_text, current=area_aplicacao, category=category)
 
     normalized = {
         "id": raw.get("id"),
-        "data_encontrada": _normalize_date(raw.get("collected_at")) or date.today().isoformat(),
+        "data_encontrada": found_date,
         "data_publicacao": publication_date,
         "prazo_inscricao": deadline,
         "status_chamada": status,
@@ -405,6 +483,8 @@ def _normalize_result(raw: dict[str, Any], result: dict[str, Any], classified_by
         "organizacao": result.get("organizacao") or _guess_organization(raw),
         "nome_oportunidade": result.get("nome_oportunidade") or raw.get("title", ""),
         "categoria": category,
+        "tipo_oportunidade": tipo_oportunidade,
+        "area_aplicacao": area_aplicacao,
         "descricao_resumida": result.get("descricao_resumida") or raw.get("snippet", ""),
         "tecnologias_relacionadas": ", ".join(technologies),
         "score_aderencia": score,
@@ -431,6 +511,8 @@ def _normalize_result(raw: dict[str, Any], result: dict[str, Any], classified_by
 def _post_validate(
     raw: dict[str, Any],
     deadline: str | None,
+    publication_date: str | None,
+    found_date: str,
     status: str,
     potential: str,
     recommendation: str,
@@ -439,6 +521,8 @@ def _post_validate(
 ) -> tuple[str, str, str]:
     text = _combined_text(raw)
     if deadline and _parse_iso_date(deadline) < date.today():
+        status = "ENCERRADA"
+    if _is_stale_without_deadline(deadline, publication_date, found_date):
         status = "ENCERRADA"
     if status in {"ENCERRADA", "NAO_E_CHAMADA"} or _has_any(text, ENDED_TERMS):
         return status, "DESCARTAR", "DESCARTAR"
@@ -512,6 +596,21 @@ def _days_remaining(deadline: str | None) -> int | None:
     return (_parse_iso_date(deadline) - date.today()).days
 
 
+def _is_stale_without_deadline(
+    deadline: str | None,
+    publication_date: str | None,
+    found_date: str | None,
+) -> bool:
+    if deadline or not publication_date:
+        return False
+    try:
+        published = _parse_iso_date(publication_date)
+        reference = _parse_iso_date(found_date or date.today().isoformat())
+    except ValueError:
+        return False
+    return published < reference - timedelta(days=STALE_PUBLICATION_DAYS)
+
+
 def _infer_potential(status: str, score: int, opportunity_score: int, tech_score: int) -> str:
     if status in {"ENCERRADA", "NAO_E_CHAMADA"}:
         return "DESCARTAR"
@@ -543,6 +642,264 @@ def _extract_cpsi_deadline(text: str) -> str | None:
             if parsed:
                 return parsed.isoformat()
     return None
+
+
+def infer_tipo_oportunidade(category: str, text: str = "", current: str | None = None) -> str:
+    lowered_category = str(category or "").lower()
+    lowered_text = str(text or "").lower()
+    if "cpsi" in lowered_category:
+        return "CPSI"
+    if "etec" in lowered_category or "encomenda tecnológica" in lowered_category or "encomenda tecnologica" in lowered_category:
+        return "ETEC"
+    if "cpi" in lowered_category or "compra pública de inovação" in lowered_category or "compra publica de inovacao" in lowered_category:
+        return "CPI"
+    if "rfi" in lowered_category or "consulta ao mercado" in lowered_category:
+        return "RFI"
+    if "inovação aberta" in lowered_category or "inovacao aberta" in lowered_category:
+        return "Open Innovation"
+    if "editais" in lowered_category or "fomento" in lowered_category:
+        return "Edital/Fomento"
+    if "rfp" in lowered_category or "demandas comerciais" in lowered_category:
+        return "RFP"
+    if _has_any(
+        lowered_category,
+        [
+            "saúde animal",
+            "saude animal",
+            "pecuária de precisão",
+            "pecuaria de precisao",
+            "agricultura digital",
+            "sensoriamento remoto",
+            "drones",
+            "cooperativas agroindustriais",
+            "empresas estratégicas agrotech",
+            "empresas estrategicas agrotech",
+        ],
+    ):
+        return "Outro"
+    if _has_any(lowered_text, ["etec", "encomenda tecnológica", "encomenda tecnologica"]):
+        return "ETEC"
+    if _has_any(lowered_text, ["rfi", "request for information", "consulta ao mercado", "tomada de subsídios"]):
+        return "RFI"
+    if _has_any(lowered_text, ["compra pública de inovação", "compra publica de inovacao", "public procurement of innovation"]):
+        return "CPI"
+    if _has_any(lowered_text, ["aceleração", "aceleracao", "incubação", "incubacao", "mentoria"]):
+        return "Aceleração"
+    if _has_any(lowered_text, ["poc", "prova de conceito", "piloto", "teste de solução", "validacao de solução"]):
+        return "PoC/Piloto"
+    if _has_any(lowered_text, ["pregão", "pregao", "concorrência", "concorrencia", "dispensa", "licitação", "licitacao"]):
+        return "Licitação Tradicional"
+    if current in TIPO_OPORTUNIDADE_VALUES:
+        return current
+    return "Outro"
+
+
+def infer_area_aplicacao(text: str, current: str | None = None, category: str = "") -> str:
+    lowered = str(text or "").lower()
+    lowered_category = str(category or "").lower()
+    category_mapping = [
+        ("Saúde Animal", ["saúde animal", "saude animal"]),
+        ("Pecuária de Precisão", ["pecuária de precisão", "pecuaria de precisao"]),
+        ("Agricultura Digital", ["agricultura digital"]),
+        ("Sensoriamento Remoto", ["sensoriamento remoto", "satélites", "satelites"]),
+        ("Drones e Monitoramento Aéreo", ["drones", "monitoramento aéreo", "monitoramento aereo"]),
+        ("Cooperativas Agroindustriais", ["cooperativas agroindustriais"]),
+        ("GovTech", ["cpsi", "etec", "compra pública de inovação", "compra publica de inovacao", "consulta ao mercado"]),
+    ]
+    for area, terms in category_mapping:
+        if _has_any(lowered_category, terms):
+            return area
+
+    rules = [
+        (
+            "Saúde Animal",
+            [
+                "verminose",
+                "sanidade animal",
+                "saúde animal",
+                "saude animal",
+                "bem-estar animal",
+                "doença animal",
+                "doenca animal",
+                "diagnóstico animal",
+                "diagnostico animal",
+                "medicamento veterinário",
+                "medicamento veterinario",
+            ],
+        ),
+        (
+            "Pecuária de Precisão",
+            [
+                "pecuária",
+                "pecuaria",
+                "bovino",
+                "caprino",
+                "ovino",
+                "suíno",
+                "suino",
+                "aves",
+                "gado",
+                "rebanho",
+                "peso animal",
+                "comportamento animal",
+                "eficiência alimentar",
+                "eficiencia alimentar",
+            ],
+        ),
+        (
+            "Sensoriamento Remoto",
+            [
+                "satélite",
+                "satelite",
+                "sensoriamento remoto",
+                "imagem orbital",
+                "geotecnologia",
+                "geotecnologias",
+                "geoprocessamento",
+                "ndvi",
+                "ndwi",
+                "observação da terra",
+                "observacao da terra",
+                "monitoramento territorial",
+            ],
+        ),
+        (
+            "Drones e Monitoramento Aéreo",
+            [
+                "drone",
+                "drones",
+                "vant",
+                "uav",
+                "aeronave remotamente pilotada",
+                "imagem aérea",
+                "imagem aerea",
+                "mapeamento aéreo",
+                "mapeamento aereo",
+                "inspeção aérea",
+                "inspecao aerea",
+            ],
+        ),
+        (
+            "Visão Computacional",
+            [
+                "visão computacional",
+                "visao computacional",
+                "processamento de imagem",
+                "processamento de imagens",
+                "detecção automática",
+                "deteccao automatica",
+                "segmentação",
+                "segmentacao",
+                "classificação de imagens",
+                "classificacao de imagens",
+                "contagem automática",
+                "contagem automatica",
+                "inspeção visual",
+                "inspecao visual",
+            ],
+        ),
+        (
+            "IA e Machine Learning",
+            [
+                "inteligência artificial",
+                "inteligencia artificial",
+                "machine learning",
+                "deep learning",
+                "modelo preditivo",
+                "ia generativa",
+                "aprendizado de máquina",
+                "aprendizado de maquina",
+            ],
+        ),
+        (
+            "Cooperativas Agroindustriais",
+            ["cooperativa", "cooperativas", "agroindustrial", "cooperativismo"],
+        ),
+        (
+            "GovTech",
+            [
+                "governo",
+                "prefeitura",
+                "secretaria",
+                "órgão público",
+                "orgao publico",
+                "serviço público",
+                "servico publico",
+                "govtech",
+                "administração pública",
+                "administracao publica",
+            ],
+        ),
+        (
+            "Meio Ambiente",
+            [
+                "meio ambiente",
+                "sustentabilidade",
+                "carbono",
+                "desmatamento",
+                "queimada",
+                "recursos hídricos",
+                "recursos hidricos",
+                "clima",
+                "biodiversidade",
+            ],
+        ),
+        (
+            "Rastreabilidade",
+            ["rastreabilidade", "cadeia produtiva", "certificação", "certificacao", "origem do produto", "controle de qualidade"],
+        ),
+        (
+            "Automação e IoT",
+            [
+                "sensor",
+                "sensores",
+                "iot",
+                "internet das coisas",
+                "telemetria",
+                "automação",
+                "automacao",
+                "hardware",
+                "dispositivo conectado",
+            ],
+        ),
+        (
+            "Agricultura Digital",
+            [
+                "agricultura digital",
+                "agricultura de precisão",
+                "agricultura de precisao",
+                "lavoura",
+                "lavouras",
+                "mapa de produtividade",
+                "produtividade agrícola",
+                "produtividade agricola",
+                "culturas agrícolas",
+                "culturas agricolas",
+            ],
+        ),
+        (
+            "Gestão Pública",
+            [
+                "gestão municipal",
+                "gestao municipal",
+                "gestão estadual",
+                "gestao estadual",
+                "gestão pública",
+                "gestao publica",
+                "planejamento",
+                "políticas públicas",
+                "politicas publicas",
+                "serviços públicos",
+                "servicos publicos",
+            ],
+        ),
+    ]
+    for area, terms in rules:
+        if _has_any(lowered, terms):
+            return area
+    if current in AREA_APLICACAO_VALUES:
+        return current
+    return "Outro"
 
 
 def _infer_recommendation(status: str, potential: str) -> str:
